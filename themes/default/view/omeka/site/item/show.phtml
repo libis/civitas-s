@@ -49,16 +49,64 @@ endif;
     <?php echo $this->pageTitle($item->displayTitle(), 2); ?>
 </div>
 <?php $this->trigger('view.show.before'); ?>
-<?php if ($embedMedia && $itemMedia): ?>
-    <div class="media-embeds">
-    <?php foreach ($itemMedia as $media):
-        echo $media->render();
-    endforeach;
+<?php if ($embedMedia && $itemMedia): 
+    // only show first media that is of type image ($media->mediaType() should be something like "image/jpeg")
+    $firstImage = null;
+    foreach ($itemMedia as $media) {
+        $type = $media->mediaType();
+        if ($type && strpos($type, 'image/') === 0) {
+            $firstImage = $media;
+            break;
+        }
+    }
+    
+    // collect all pdf media    $pdfMedia = [];
+    foreach ($itemMedia as $media) {
+        $type = $media->mediaType();
+        if ($type && strpos($type, 'application/pdf') === 0) {
+            $pdfMedia[] = $media;
+        }
+    }
+    
     ?>
+    <div class="media-embeds">
+        <?php echo $firstImage->render();?>        
     </div>
 <?php endif; ?>
 <div class="metadata">
     <?php echo $item->displayValues(); ?>
+    <?php if (!empty($pdfMedia)): ?>
+        <hr style='border-top:0'>
+        <h3><?php echo $translate('PDF'); ?></h3>
+        <?php foreach ($pdfMedia as $pdf): ?>
+            <a href="<?php echo $pdf->originalUrl(); ?>" target="_blank">
+            <?php echo $pdf->value('dcterms:title') ? $escape($pdf->value('dcterms:title')) : $pdf->displayTitle(); ?>
+            </a><br>
+        <?php endforeach; ?>
+    <?php endif; ?>
+    <?php
+    if($embedMedia && $itemMedia):
+        $additionalMedia = [];
+        foreach ($itemMedia as $media) {
+            $type = $media->mediaType();
+            if ($type && strpos($type, 'image/') === 0) {
+                if ($media !== $firstImage) {
+                    $additionalMedia[] = $media;
+                }
+            }
+        }
+        if (!empty($additionalMedia)):
+            echo "<hr style='border-top:0'>";
+            foreach ($additionalMedia as $media):
+                echo '<div class="additional-media" style="display:inline-block;margin:10px 10px 0 0;">';
+                echo '<a href="' . $media->originalUrl() . '" target="_blank">';
+                echo '<img style="width=150px" src="' . $media->thumbnailUrl('square') . '" alt="' . ($media->value('dcterms:title') ? $escape($media->value('dcterms:title')) : $media->displayTitle()) . '">';
+                echo '</a>';
+                echo '</div>';
+            endforeach;
+        endif;
+    endif;
+    ?>
 </div>
 <?php if (!$embedMedia && $itemMedia): ?>
 <div class="media-list">
@@ -72,6 +120,7 @@ endif;
 $page = $this->params()->fromQuery('page', 1);
 $property = $this->params()->fromQuery('property');
 $subjectValues = $item->displaySubjectValues($page, 25, $property);
+$subjectValues = '';
 ?>
 <?php if ($subjectValues): ?>
 <div id="item-linked">

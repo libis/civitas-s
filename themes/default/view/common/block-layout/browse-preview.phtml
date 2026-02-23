@@ -28,7 +28,11 @@
       foreach ($this->resources as $resource):
           $heading = $resource->value($headingTerm, ['default' => $this->translate('[Untitled]')]);
           $body = $resource->value($bodyTerm);
-          $media = $resource->primaryMedia()->thumbnailUrl($size);
+          if($resource->primaryMedia()):
+            $media = $resource->primaryMedia()->thumbnailUrl($size);
+          else:
+            $media = '';  
+          endif;
     ?>
       <div class="<?php echo $this->resourceType; ?> resource <?php echo $span;?>">
         <div class="event-img"  style="background: center / cover no-repeat url(<?php echo $media;?>)">
