@@ -1,10 +1,11 @@
-<?php
+<?php declare(strict_types=1);
+
 /*
  * Archive Repertory
  *
  * Keeps original names of files and put them in a hierarchical structure.
  *
- * Copyright Daniel Berthereau 2012-2020
+ * Copyright Daniel Berthereau 2012-2024
  * Copyright BibLibre, 2016
  *
  * This software is governed by the CeCILL license under French law and abiding
@@ -30,27 +31,50 @@
  * The fact that you are presently reading this means that you have had
  * knowledge of the CeCILL license and that you accept its terms.
  */
+
 namespace ArchiveRepertory;
 
-if (!class_exists(\Generic\AbstractModule::class)) {
-    require file_exists(dirname(__DIR__) . '/Generic/AbstractModule.php')
-        ? dirname(__DIR__) . '/Generic/AbstractModule.php'
-        : __DIR__ . '/src/Generic/AbstractModule.php';
+if (!class_exists(\Common\TraitModule::class)) {
+    require_once dirname(__DIR__) . '/Common/TraitModule.php';
 }
 
 use ArchiveRepertory\Form\ConfigForm;
-use Generic\AbstractModule;
+use Common\Stdlib\PsrMessage;
+use Common\TraitModule;
+use Laminas\EventManager\Event;
+use Laminas\EventManager\SharedEventManagerInterface;
+use Laminas\View\Renderer\PhpRenderer;
 use Omeka\Entity\Media;
-use Omeka\Mvc\Controller\Plugin\Messenger;
-use Zend\EventManager\Event;
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\View\Renderer\PhpRenderer;
+use Omeka\Module\AbstractModule;
 
+/**
+ * Archive Repertory.
+ *
+ * @copyright Daniel Berthereau, 2012-2024
+ * @copyright BibLibre, 2016
+ * @license http://www.cecill.info/licences/Licence_CeCILL_V2.1-en.txt
+ */
 class Module extends AbstractModule
 {
+    use TraitModule;
+
     const NAMESPACE = __NAMESPACE__;
 
-    public function attachListeners(SharedEventManagerInterface $sharedEventManager)
+    protected function preInstall(): void
+    {
+        $services = $this->getServiceLocator();
+        $translate = $services->get('ControllerPluginManager')->get('translate');
+
+        if (!method_exists($this, 'checkModuleActiveVersion') || !$this->checkModuleActiveVersion('Common', '3.4.57')) {
+            $message = new \Omeka\Stdlib\Message(
+                $translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
+                'Common', '3.4.57'
+            );
+            throw new \Omeka\Module\Exception\ModuleCannotInstallException((string) $message);
+        }
+    }
+
+    public function attachListeners(SharedEventManagerInterface $sharedEventManager): void
     {
         $sharedEventManager->attach(
             \Omeka\Api\Adapter\ItemAdapter::class,
@@ -68,6 +92,19 @@ class Module extends AbstractModule
             \Omeka\Api\Adapter\ItemAdapter::class,
             'api.delete.post',
             [$this, 'afterDeleteItem'],
+            100
+        );
+
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\MediaAdapter::class,
+            'api.create.post',
+            [$this, 'afterUploadMedia'],
+            100
+        );
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\MediaAdapter::class,
+            'api.update.post',
+            [$this, 'afterUploadMedia'],
             100
         );
     }
@@ -94,9 +131,9 @@ class Module extends AbstractModule
     }
 
     /**
-     * Manages folders for attached files of items.
+     * Manage folders for attached files of items.
      */
-    public function afterSaveItem(Event $event)
+    public function afterSaveItem(Event $event): void
     {
         $item = $event->getParam('response')->getContent();
         foreach ($item->getMedia() as $media) {
@@ -105,15 +142,25 @@ class Module extends AbstractModule
     }
 
     /**
+     * Manage folders for media.
+     */
+    public function afterUploadMedia(Event $event): void
+    {
+        $media = $event->getParam('response')->getContent();
+        $this->afterSaveMedia($media);
+    }
+
+    /**
      * Set medias at the right place.
      *
      * @param Media $media
      */
-    protected function afterSaveMedia(Media $media)
+    protected function afterSaveMedia(Media $media): void
     {
         /**
          * @var \ArchiveRepertory\File\FileManager $fileManager
          * @var \ArchiveRepertory\File\FileWriter $fileWriter
+         * @var \Omeka\Mvc\Controller\Plugin\Messenger $messenger
          */
         $services = $this->getServiceLocator();
         $entityManager = $services->get('Omeka\EntityManager');
@@ -142,9 +189,11 @@ class Module extends AbstractModule
         $path = $fileManager->getFullArchivePath('original');
         $filepath = $fileManager->concatWithSeparator($path, $media->getFilename());
         if (!$fileWriter->fileExists($filepath)) {
-            $msg = $this->translate('This file is not present in the original directory : ' . $filepath); // @translate
-            $msg .= ' ' . $this->translate('There was an undetected error before storage, probably during the convert process.'); // @translate
-            $this->addError($msg);
+            $messenger = $services->get('ControllerPluginManager')->get('messenger');
+            $messenger->addError(new PsrMessage(
+                'This file is not present in the original directory: {filepath}. There was an undetected error before storage, probably during the convert process.', // @translate
+                ['filepath' => $filepath]
+            ));
             return;
         }
 
@@ -154,8 +203,10 @@ class Module extends AbstractModule
         );
 
         if (!$result) {
-            $msg = $this->translate('Cannot move files inside archive directory.'); // @translate
-            $this->addError($msg);
+            $messenger = $services->get('ControllerPluginManager')->get('messenger');
+            $messenger->addError(new PsrMessage(
+                'Cannot move files inside archive directory.' // @translate
+            ));
             return;
         }
 
@@ -172,7 +223,7 @@ class Module extends AbstractModule
      *
      * The default files are removed with the standard process.
      */
-    public function afterDeleteItem(Event $event)
+    public function afterDeleteItem(Event $event): void
     {
         /** @var \ArchiveRepertory\File\FileManager $fileManager */
         $services = $this->getServiceLocator();
@@ -192,25 +243,14 @@ class Module extends AbstractModule
 
             // Check if there is a directory to remove. Note: only the "/" is
             // used during the saving.
-            $filename = $media->getFilename();
+            $filename = (string) $media->getFilename();
             if (strpos($filename, '/') === false) {
                 continue;
             }
+
             $storageDir = dirname($filename);
             $fileManager->removeArchiveFolders($storageDir);
             // Whatever the result, continue the other medias.
         }
-    }
-
-    protected function addError($msg)
-    {
-        $messenger = new Messenger;
-        $messenger->addError($msg);
-    }
-
-    protected function translate($string)
-    {
-        $serviceLocator = $this->getServiceLocator();
-        return $serviceLocator->get('MvcTranslator')->translate($string);
     }
 }

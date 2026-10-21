@@ -7,7 +7,7 @@ services:
     ports:
       - "9000:80"
     volumes:
-      - ./modules/:/var/www/html/civitas/modules/
+      #- ./modules/:/var/www/html/civitas/modules/
       - ./themes/:/var/www/html/civitas/themes/
       - ./files/:/var/www/html/civitas/files/
       - ./config/:/var/www/html/civitas/config/

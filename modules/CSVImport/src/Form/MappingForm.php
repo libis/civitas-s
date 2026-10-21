@@ -6,7 +6,8 @@ use Omeka\Form\Element\ItemSetSelect;
 use Omeka\Form\Element\PropertySelect;
 use Omeka\Form\Element\ResourceSelect;
 use Omeka\Form\Element\ResourceClassSelect;
-use Zend\Form\Form;
+use Omeka\Form\Element\SiteSelect;
+use Laminas\Form\Form;
 
 class MappingForm extends Form
 {
@@ -17,8 +18,8 @@ class MappingForm extends Form
         $resourceType = $this->getOption('resource_type');
         $serviceLocator = $this->getServiceLocator();
         $userSettings = $serviceLocator->get('Omeka\Settings\User');
-        $config = $serviceLocator->get('Config');
-        $default = $config['csv_import']['user_settings'];
+        $config = $serviceLocator->get('CSVImport\Config');
+        $default = $config['user_settings'];
         $acl = $serviceLocator->get('Omeka\Acl');
 
         $this->add([
@@ -53,7 +54,7 @@ class MappingForm extends Form
             'type' => 'hidden',
             'attributes' => [
                 'value' => $this->getOption('comment'),
-            ]
+            ],
         ]);
 
         $this->add([
@@ -71,7 +72,7 @@ class MappingForm extends Form
             'attributes' => [
                 'id' => 'csv-import-basics-fieldset',
                 'class' => 'section',
-            ]
+            ],
         ]);
 
         $basicSettingsFieldset = $this->get('basic-settings');
@@ -197,6 +198,21 @@ class MappingForm extends Form
                             ],
                         ],
                     ]);
+
+                    $basicSettingsFieldset->add([
+                        'name' => 'o:site',
+                        'type' => SiteSelect::class,
+                        'attributes' => [
+                            'id' => 'select-sites',
+                            'class' => 'chosen-select',
+                            'multiple' => true,
+                            'data-placeholder' => 'Select sites', // @translate
+                            'value' => $this->getDefaultSiteIds(),
+                        ],
+                        'options' => [
+                            'label' => 'Sites', // @translate
+                        ],
+                    ]);
                     break;
 
                 case 'resources':
@@ -230,6 +246,21 @@ class MappingForm extends Form
                             ],
                         ],
                     ]);
+
+                    $basicSettingsFieldset->add([
+                        'name' => 'o:site',
+                        'type' => SiteSelect::class,
+                        'attributes' => [
+                            'id' => 'select-sites',
+                            'class' => 'chosen-select',
+                            'multiple' => true,
+                            'data-placeholder' => 'Select sites', // @translate
+                            'value' => $this->getDefaultSiteIds(),
+                        ],
+                        'options' => [
+                            'label' => 'Sites for items', // @translate
+                        ],
+                    ]);
                     break;
             }
 
@@ -242,7 +273,6 @@ class MappingForm extends Form
                 ],
                 'attributes' => [
                     'id' => 'multivalue_separator',
-                    'class' => 'input-body',
                     'value' => $userSettings->get(
                         'csv_import_multivalue_separator',
                         $default['csv_import_multivalue_separator']),
@@ -258,7 +288,7 @@ class MappingForm extends Form
                 ],
                 'attributes' => [
                     'id' => 'global_language',
-                    'class' => 'input-body value-language',
+                    'class' => 'validate-language',
                     'value' => $userSettings->get(
                         'csv_import_global_language',
                         $default['csv_import_global_language']),
@@ -271,18 +301,18 @@ class MappingForm extends Form
                 'attributes' => [
                     'id' => 'csv-import-advanced-fieldset',
                     'class' => 'section',
-                ]
+                ],
             ]);
 
             $advancedSettingsFieldset = $this->get('advanced-settings');
 
             $valueOptions = [
-                Import::ACTION_CREATE => 'Create a new resource', // @translate
-                Import::ACTION_APPEND => 'Append data to the resource', // @translate
-                Import::ACTION_REVISE => 'Revise data of the resource', // @translate
-                Import::ACTION_UPDATE => 'Update data of the resource', // @translate
-                Import::ACTION_REPLACE => 'Replace all data of the resource', // @translate
-                Import::ACTION_DELETE => 'Delete the resource', // @translate
+                Import::ACTION_CREATE => 'Create (Each row in the CSV will become a new resource)', // @translate
+                Import::ACTION_APPEND => 'Append (Add new data to the resource, based on an identifier for an existing resource)', // @translate
+                Import::ACTION_REVISE => 'Revise (Replace existing fields of the resource with data from the CSV, except if the corresponding cell in the CSV is empty)', // @translate
+                Import::ACTION_UPDATE => 'Update (Replace existing fields of the resource with data from the CSV, even when the corresponding cell in the CSV is empty)', // @translate
+                Import::ACTION_REPLACE => 'Replace (Remove all properties of the resource, then add new information from the CSV)', // @translate
+                Import::ACTION_DELETE => 'Delete (Delete any resources matched by the identifiers)', // @translate
             ];
 
             $advancedSettingsFieldset->add([
@@ -290,8 +320,9 @@ class MappingForm extends Form
                 'type' => 'select',
                 'options' => [
                     'label' => 'Action', // @translate
-                    'info' => 'By default, an import creates new resources. Select from this dropdown to choose an alternate action for the import. For more information on each action, see the documentation.', // @translate
+                    'info' => 'By default, an import creates new resources. Select from this dropdown to choose an alternate action for the import. For more information on each action, see <a href="https://omeka.org/s/docs/user-manual/modules/csvimport/#media-import-advanced-settings" target="_blank">the documentation</a>.', // @translate
                     'value_options' => $valueOptions,
+                    'escape_info' => false,
                 ],
                 'attributes' => [
                     'id' => 'action',
@@ -310,12 +341,12 @@ class MappingForm extends Form
                     'attributes' => [
                         'id' => 'identifier_column',
                         'class' => 'action-option',
-                    ]
+                    ],
                 ]);
             } else {
                 $advancedSettingsFieldset->add([
                     'name' => 'identifier_column',
-                    'type' => 'Number'
+                    'type' => 'Number',
                 ]);
             }
 
@@ -326,7 +357,6 @@ class MappingForm extends Form
                     'label' => 'Resource identifier property', // @translate
                     'info' => 'Use this property, generally "dcterms:identifier", to identify the existing resources, so it will be possible to update them. One column of the file must map the selected property. In all cases, it is strongly recommended to add one ore more unique identifiers to all your resources.', // @translate
                     'empty_option' => 'Select below', // @translate
-                    'term_as_value' => false,
                     'prepend_value_options' => [
                         'internal_id' => 'Internal ID', // @translate
                     ],
@@ -370,7 +400,7 @@ class MappingForm extends Form
                     'value' => $userSettings->get(
                         'csv_import_rows_by_batch',
                         $default['csv_import_rows_by_batch']),
-                    'min'  => '1',
+                    'min' => '1',
                     'step' => '1',
                 ],
             ]);
@@ -401,7 +431,11 @@ class MappingForm extends Form
                 'name' => 'o:item_set',
                 'required' => false,
             ]);
-            
+            $basicSettingsInputFilter->add([
+                'name' => 'o:site',
+                'required' => false,
+            ]);
+
             $advancedSettingsInputFilter = $inputFilter->get('advanced-settings');
             $advancedSettingsInputFilter->add([
                 'name' => 'action',
@@ -420,6 +454,21 @@ class MappingForm extends Form
                 'required' => false,
             ]);
         }
+    }
+
+    private function getDefaultSiteIds()
+    {
+        $serviceLocator = $this->getServiceLocator();
+        $api = $serviceLocator->get('Omeka\ApiManager');
+        $userSettings = $serviceLocator->get('Omeka\Settings\User');
+
+        $globalDefaultSites = $api->search('sites', ['assign_new_items' => true])->getContent();
+        $userDefaultSiteIds = $userSettings->get('default_item_sites', []);
+        $globalDefaultSiteIds = [];
+        foreach ($globalDefaultSites as $siteRepresentation) {
+            $globalDefaultSiteIds[] = $siteRepresentation->id();
+        }
+        return array_merge($userDefaultSiteIds, $globalDefaultSiteIds);
     }
 
     public function setServiceLocator($serviceLocator)

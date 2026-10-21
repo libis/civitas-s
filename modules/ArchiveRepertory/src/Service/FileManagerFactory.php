@@ -1,10 +1,11 @@
-<?php
+<?php declare(strict_types=1);
+
 namespace ArchiveRepertory\Service;
 
 use ArchiveRepertory\File\FileManager;
 use Interop\Container\ContainerInterface;
+use Laminas\ServiceManager\Factory\FactoryInterface;
 use Omeka\Service\Exception\ConfigException;
-use Zend\ServiceManager\Factory\FactoryInterface;
 
 class FileManagerFactory implements FactoryInterface
 {
@@ -21,14 +22,17 @@ class FileManagerFactory implements FactoryInterface
         }
 
         $basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-        $thumbnailTypes = $config['thumbnails']['types'];
         $ingesters = $config['archiverepertory']['ingesters'];
+        $thumbnailTypes = $config['thumbnails']['types'];
 
         return new FileManager(
-            $thumbnailTypes,
+            $services->get('ArchiveRepertory\FileWriter'),
+            $services->get('ControllerPluginManager')->get('messenger'),
+            $services->get('Omeka\Settings'),
+            $services->get('MvcTranslator'),
             $basePath,
             $ingesters,
-            $services
+            $thumbnailTypes
         );
     }
 }

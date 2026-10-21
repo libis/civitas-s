@@ -55,10 +55,6 @@ tr.mappable td {
     vertical-align: top;
 }
 
-tr.mappable td:first-child {
-    max-width: 20%;
-}
-
 #mapping-data .select-all, 
 tr.mappable input[type="checkbox"] {
     margin-right: .5em;
@@ -85,8 +81,8 @@ ul.options {
     margin: 0;
 }
 
-ul.options li {
-    display: flex;
+ul.options > li:not(.active) {
+    display: none;
 }
 
 li {
@@ -141,11 +137,6 @@ li.option.delete {
 }
 
 .sidebar .options p {
-    margin: 3px;
-}
-
-input.value-language[type="text"] {
-    display: block;
     margin: 3px;
 }
 
@@ -220,6 +211,7 @@ li.column-multivalue {
 
 .column-header {
     max-width: calc(100% - 72px);
+    word-wrap: break-word;
 }
 
 #column-options .batch-edit-heading,
@@ -266,20 +258,19 @@ li.column-multivalue {
     content: none;
 }
 
-.multivalue.option,
-.additions.mapping {
+.one-line {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
 }
 
-.multivalue label,
-.additions label {
+.one-line > label, .one-line > div.option-info {
     width: calc(100% - 1em);
 }
 
 .sidebar span.description {
     width: 100%;
+    font-size: 14px;
 }
 
 .resource-type-select ~ .mapping {

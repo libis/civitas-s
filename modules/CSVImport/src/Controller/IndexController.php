@@ -10,8 +10,8 @@ use Omeka\Media\Ingester\Manager;
 use Omeka\Service\Exception\ConfigException;
 use Omeka\Settings\UserSettings;
 use Omeka\Stdlib\Message;
-use Zend\Mvc\Controller\AbstractActionController;
-use Zend\View\Model\ViewModel;
+use Laminas\Mvc\Controller\AbstractActionController;
+use Laminas\View\Model\ViewModel;
 
 class IndexController extends AbstractActionController
 {
@@ -36,15 +36,21 @@ class IndexController extends AbstractActionController
     protected $userSettings;
 
     /**
+     * @var string
+     */
+    protected $tempDir;
+
+    /**
      * @param array $config
      * @param Manager $mediaIngesterManager
      * @param UserSettings $userSettings
      */
-    public function __construct(array $config, Manager $mediaIngesterManager, UserSettings $userSettings)
+    public function __construct(array $config, Manager $mediaIngesterManager, UserSettings $userSettings, $tempDir)
     {
         $this->config = $config;
         $this->mediaIngesterManager = $mediaIngesterManager;
         $this->userSettings = $userSettings;
+        $this->tempDir = $tempDir;
     }
 
     public function indexAction()
@@ -136,14 +142,17 @@ class IndexController extends AbstractActionController
             $view->setVariable('automaps', $autoMaps);
             $view->setVariable('mappings', $this->getMappingsForResource($resourceType));
             $view->setVariable('mediaForms', $this->getMediaForms());
+            $view->setVariable('dataTypes', $this->getDataTypes());
             return $view;
         } else {
             $form = $this->getForm(MappingForm::class, $mappingOptions);
             $form->setData($post);
             if ($form->isValid()) {
-                // Flatten basic and advanced settings back into single level
-                $post = array_merge($post, $post['basic-settings'], $post['advanced-settings']);
-                unset($post['basic-settings'], $post['advanced-settings']);
+                if (isset($post['basic-settings']) || isset($post['advanced-settings'])) {
+                    // Flatten basic and advanced settings back into single level
+                    $post = array_merge($post, $post['basic-settings'], $post['advanced-settings']);
+                    unset($post['basic-settings'], $post['advanced-settings']);
+                }
 
                 $args = $this->cleanArgs($post);
                 $this->saveUserSettings($args);
@@ -166,9 +175,7 @@ class IndexController extends AbstractActionController
 
             // TODO Keep user variables when the form is invalid.
             $this->messenger()->addError('Invalid settings.'); // @translate
-            foreach ($form->getMessages() as $key => $value) {
-                $this->messenger()->addError("$key: $value");
-            }
+            $this->messenger()->addFormErrors($form);
             return $this->redirect()->toRoute('admin/csvimport');
         }
     }
@@ -226,7 +233,7 @@ class IndexController extends AbstractActionController
             }
         }
 
-        $sources = $this->config['csv_import']['sources'];
+        $sources = $this->config['sources'];
         if (!isset($sources[$mediaType])) {
             return;
         }
@@ -246,10 +253,10 @@ class IndexController extends AbstractActionController
         // First reorder mappings: for ergonomic reasons, it’s cleaner to keep
         // the buttons of modules after the default ones. This is only needed in
         // the mapping form. The default order is set in this module config too,
-        // before Zend merge.
+        // before Laminas merge.
         $config = include dirname(dirname(__DIR__)) . '/config/module.config.php';
         $defaultOrder = $config['csv_import']['mappings'];
-        $mappings = $this->config['csv_import']['mappings'];
+        $mappings = $this->config['mappings'];
         if (isset($defaultOrder[$resourceType])) {
             $mappingClasses = array_values(array_unique(array_merge(
                 $defaultOrder[$resourceType], $mappings[$resourceType]
@@ -352,7 +359,6 @@ class IndexController extends AbstractActionController
                 break;
         }
 
-
         // Set a default owner for a creation.
         if (empty($args['o:owner']['o:id']) && (empty($args['action']) || $args['action'] === Import::ACTION_CREATE)) {
             $args['o:owner'] = ['o:id' => $this->identity()->getId()];
@@ -382,6 +388,16 @@ class IndexController extends AbstractActionController
         return $forms;
     }
 
+    protected function getDataTypes()
+    {
+        $dataTypes = [];
+        $configDataTypes = $this->config['data_types'];
+        foreach ($configDataTypes as $id => $configEntry) {
+            $dataTypes[$id] = $configEntry['label'];
+        }
+        return $dataTypes;
+    }
+
     /**
      * Move a file to the temp path.
      *
@@ -404,11 +420,10 @@ class IndexController extends AbstractActionController
             return $this->tempPath;
         }
         if (!isset($tempDir)) {
-            $config = $this->config;
-            if (!isset($config['temp_dir'])) {
+            if (!isset($this->tempDir)) {
                 throw new ConfigException('Missing temporary directory configuration');
             }
-            $tempDir = $config['temp_dir'];
+            $tempDir = $this->tempDir;
         }
         $this->tempPath = tempnam($tempDir, 'omeka');
         return $this->tempPath;
@@ -436,7 +451,7 @@ class IndexController extends AbstractActionController
      */
     protected function saveUserSettings(array $settings)
     {
-        foreach ($this->config['csv_import']['user_settings'] as $key => $value) {
+        foreach ($this->config['user_settings'] as $key => $value) {
             $name = substr($key, strlen('csv_import_'));
             if (isset($settings[$name])) {
                 $this->userSettings()->set($key, $settings[$name]);

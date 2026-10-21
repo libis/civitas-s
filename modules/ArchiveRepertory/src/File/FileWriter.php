@@ -1,92 +1,104 @@
-<?php
+<?php declare(strict_types=1);
+
 namespace ArchiveRepertory\File;
 
 class FileWriter
 {
     public function putContents($path, $contents)
     {
-        return file_put_contents($path, $contents);
+        return file_put_contents((string) $path, $contents);
     }
 
-    public function fileExists($path)
+    public function fileExists($path): bool
     {
-        return file_exists($path);
+        return file_exists((string) $path);
     }
 
-    public function is_dir($path)
+    public function is_dir($path): bool
     {
-        return is_dir($path);
+        return is_dir((string) $path);
     }
 
-    public function is_writable($path)
+    public function is_writeable($path): bool
     {
-        return is_writable($path);
+        return is_writeable((string) $path);
     }
 
-    public function mkdir($directory_name, $permissions = 0777)
+    public function mkdir($directory_name, $permissions = 0777): bool
     {
-        return mkdir($directory_name, $permissions, true);
+        return mkdir((string) $directory_name, $permissions, true);
     }
 
     public function getContents($path)
     {
-        return file_get_contents($path);
+        return file_get_contents((string) $path);
     }
 
-    public function moveUploadedFile($source, $destination)
+    public function moveUploadedFile($source, $destination): bool
     {
-        return move_uploaded_file($source, $destination);
+        return move_uploaded_file((string) $source, (string) $destination);
     }
 
-    public function rename($oldname, $newname)
+    public function rename($oldname, $newname): bool
     {
-        return rename($oldname, $newname);
+        return rename((string) $oldname, (string) $newname);
     }
 
-    public function chmod($path, $permission)
+    public function chmod($path, $permission): bool
     {
-        return chmod($path, $permission);
+        return chmod((string) $path, $permission);
     }
 
     public function glob($pattern, $flags = 0)
     {
-        return glob($pattern, $flags);
+        return glob((string) $pattern, $flags);
     }
 
     /**
      * Checks and removes a folder recursively.
+     *
+     * @todo Use Omeka dependencies.
      *
      * @param string $path Full path of the folder to remove.
      * @param bool $evenNonEmpty Remove non empty folder. This parameter can be
      * used with non standard folders.
      * @return bool
      */
-    public function removeDir($path, $evenNonEmpty = false)
+    public function removeDir($path, $evenNonEmpty = false): bool
     {
-        $path = realpath($path);
-        if (mb_strlen($path)
+        $path = realpath((string) $path);
+        if ($path
+            && mb_strlen($path)
             && $path != DIRECTORY_SEPARATOR
             && file_exists($path)
             && is_dir($path)
             && is_readable($path)
-            && is_writable($path)
+            && is_writeable($path)
             && ($evenNonEmpty || count(array_diff(@scandir($path), ['.', '..'])) == 0)
         ) {
             return $this->recursiveRemoveDir($path);
         }
+        return false;
     }
 
     /**
      * Removes directories recursively.
      *
-     * @param string $dirPath Directory name.
+     * @param string $dirPath Absolute directory name.
      * @return bool
      */
-    protected function recursiveRemoveDir($dirPath)
+    protected function recursiveRemoveDir($dirPath): bool
     {
+        $dirPath = (string) $dirPath;
+        if (!file_exists($dirPath)) {
+            return true;
+        }
+        if (strpos($dirPath, '/..') !== false || substr($dirPath, 0, 1) !== '/') {
+            return false;
+        }
         $files = array_diff(scandir($dirPath), ['.', '..']);
         foreach ($files as $file) {
-            $path = $dirPath . DIRECTORY_SEPARATOR . $file;
+            $path = $dirPath . '/' . $file;
             if (is_dir($path)) {
                 $this->recursiveRemoveDir($path);
             } else {

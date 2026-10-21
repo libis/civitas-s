@@ -21,7 +21,6 @@ return [
         ],
         'factories' => [
             'mediaSourceSidebar' => Service\ViewHelper\MediaSourceSidebarFactory::class,
-            'resourceSidebar' => Service\ViewHelper\ResourceSidebarFactory::class,
         ],
     ],
     'form_elements' => [
@@ -48,6 +47,11 @@ return [
         'invokables' => [
             'csvimport_entities' => Api\Adapter\EntityAdapter::class,
             'csvimport_imports' => Api\Adapter\ImportAdapter::class,
+        ],
+    ],
+    'service_manager' => [
+        'factories' => [
+            'CSVImport\Config' => Service\ConfigFactory::class,
         ],
     ],
     'router' => [
@@ -140,36 +144,52 @@ return [
         'sources' => [
             'application/vnd.oasis.opendocument.spreadsheet' => Source\OpenDocumentSpreadsheet::class,
             'text/csv' => Source\CsvFile::class,
+            'application/csv' => Source\CsvFile::class,
             'text/tab-separated-values' => Source\TsvFile::class,
         ],
         'mappings' => [
             'items' => [
-                Mapping\ItemMapping::class,
                 Mapping\PropertyMapping::class,
+                Mapping\ItemMapping::class,
                 Mapping\MediaSourceMapping::class,
             ],
             'item_sets' => [
-                Mapping\ItemSetMapping::class,
                 Mapping\PropertyMapping::class,
+                Mapping\ItemSetMapping::class,
             ],
             'media' => [
-                Mapping\MediaMapping::class,
                 Mapping\PropertyMapping::class,
+                Mapping\MediaMapping::class,
                 Mapping\MediaSourceMapping::class,
             ],
             'resources' => [
-                Mapping\ResourceMapping::class,
                 Mapping\PropertyMapping::class,
+                Mapping\ResourceMapping::class,
                 Mapping\MediaSourceMapping::class,
             ],
             'users' => [
                 Mapping\UserMapping::class,
             ],
         ],
+        'data_types' => [
+            'literal' => [
+                'label' => 'Text', // @translate
+                'adapter' => 'literal',
+            ],
+            'uri' => [
+                'label' => 'URI', // @translate
+                'adapter' => 'uri',
+            ],
+            'resource' => [
+                'label' => 'Omeka resource', // @translate
+                'adapter' => 'resource',
+            ],
+        ],
         'media_ingester_adapter' => [
             'url' => MediaIngesterAdapter\UrlMediaIngesterAdapter::class,
             'html' => MediaIngesterAdapter\HtmlMediaIngesterAdapter::class,
             'iiif' => null,
+            'iiif_presentation' => null,
             'oembed' => null,
             'youtube' => null,
         ],

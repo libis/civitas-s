@@ -1,7 +1,14 @@
-<?php
+<?php declare(strict_types=1);
+
 namespace ArchiveRepertory;
 
 return [
+    'service_manager' => [
+        'factories' => [
+            'ArchiveRepertory\FileManager' => Service\FileManagerFactory::class,
+            'ArchiveRepertory\FileWriter' => Service\FileWriterFactory::class,
+        ],
+    ],
     'view_manager' => [
         'template_path_stack' => [
             dirname(__DIR__) . '/view',
@@ -15,12 +22,6 @@ return [
     'form_elements' => [
         'factories' => [
             Form\ConfigForm::class => Service\Form\ConfigFormFactory::class,
-        ],
-    ],
-    'service_manager' => [
-        'factories' => [
-            'ArchiveRepertory\FileManager' => Service\FileManagerFactory::class,
-            'ArchiveRepertory\FileWriter' => Service\FileWriterFactory::class,
         ],
     ],
     'translator' => [
@@ -43,7 +44,12 @@ return [
             // See the module Image Server for a full example.
             'upload' => [],
             'url' => [],
+            // Module EasyAdmin.
+            'bulk_upload' => [],
+            'bulk_uploaded' => [],
+            // Module FileSideload.
             'sideload' => [],
+            'sideload_dir' => [],
         ],
         'config' => [
             // Item sets options.
@@ -58,6 +64,9 @@ return [
 
             // Media options.
             'archiverepertory_media_convert' => 'full',
+
+            // Other options.
+            'archiverepertory_keep_parenthesis' => false,
         ],
     ],
 ];

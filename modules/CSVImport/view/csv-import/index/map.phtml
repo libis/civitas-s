@@ -2,7 +2,6 @@
 $form->prepare();
 $escapeHtml = $this->plugin('escapeHtml');
 $this->htmlElement('body')->appendAttribute('class', 'no-section-hashes');
-$this->headStyle()->appendStyle('.inputs input.value-language.active[type="text"] { background-color: #fff; padding: 0 5px; display: inherit; }');
 $this->headLink()->appendStylesheet($this->assetUrl('css/csvimport.css', 'CSVImport'));
 $this->headScript()->appendFile($this->assetUrl('js/csvimport.js', 'CSVImport'));
 
@@ -26,8 +25,10 @@ $pageTitle = isset($resourceTypeLabels[$resourceType])
 <nav class="section-nav">
     <ul>
         <li class="active"><a href="#mapping-data"><?php echo $this->translate('Map to Omeka S data'); ?></a></li>
+        <?php if ($resourceType !== 'users'): ?>
         <li><a href="#csv-import-basics-fieldset"><?php echo $this->translate('Basic Settings'); ?></a></li>
         <li><a href="#csv-import-advanced-fieldset"><?php echo $this->translate('Advanced Settings'); ?></a></li>
+        <?php endif; ?>
     </ul>
 </nav>
 <input type="hidden" name="filename" value="<?php echo $filename; ?>" />
@@ -53,13 +54,20 @@ $pageTitle = isset($resourceTypeLabels[$resourceType])
         </div>
     </div>
     <?php endif; ?>
+    <?php if ($resourceType !== 'users'): ?>
     <div class="batch-inputs">
         <a class="inactive button" data-sidebar-selector="#column-options" id="batch-edit-options"><?php echo $this->translate('Batch edit options'); ?></a>
     </div>
+    <?php endif; ?>
     <table class="batch-edit tablesaw tablesaw-stack" data-tablesaw-mode="stack">
         <thead>
             <tr>
-                <th><input type="checkbox" class="select-all" aria-label="<?php echo $this->translate('Select all'); ?>"><?php echo $this->translate("Column"); ?></th>
+                <th>
+                    <?php if ($resourceType !== 'users'): ?>
+                        <input type="checkbox" class="select-all" aria-label="<?php echo $this->translate('Select all'); ?>">
+                    <?php endif; ?>
+                    <?php echo $this->translate("Column"); ?>
+                </th>
                 <th><?php echo $this->translate("Mappings"); ?></th>
                 <th><?php echo $this->translate("Options"); ?></th>
             </tr>
@@ -68,11 +76,15 @@ $pageTitle = isset($resourceTypeLabels[$resourceType])
         <?php foreach ($columns as $index=>$column): ?>
             <tr class="element mappable" data-element-id="<?php echo $index; ?>" data-column="<?php echo $escapeHtml($column); ?>">
                 <td>
-                    <input type="checkbox" name="column[<?php echo $index; ?>]" class="column-select" value="<?php echo $this->escapeHtml($column); ?>" aria-label="<?php echo $this->translate('Select column'); ?>">
+                    <?php if ($resourceType !== 'users'): ?>
+                        <input type="checkbox" name="column[<?php echo $index; ?>]" class="column-select" value="<?php echo $this->escapeHtml($column); ?>" aria-label="<?php echo $this->translate('Select column'); ?>">
+                    <?php endif; ?>
                     <span class="column-header"><?php echo $escapeHtml($column); ?></span>
                     <ul class="actions">
                         <li><a href="#" class="o-icon-add sidebar-content" data-sidebar-selector="#add-mapping" aria-label="<?php echo $this->translate('Add mapping'); ?>" title="<?php echo $this->translate('Add mapping'); ?>"></a></li>
+                        <?php if ($resourceType !== 'users'): ?>
                         <li><a href="#" class="o-icon-configure sidebar-content" aria-label="<?php echo $this->translate('Configure'); ?>" title="<?php echo $this->translate('Configure'); ?>" data-sidebar-selector="#column-options"></a></li>
+                        <?php endif; ?>
                     </ul>
                 </td>
                 <td class="mapping element">
@@ -90,18 +102,29 @@ $pageTitle = isset($resourceTypeLabels[$resourceType])
                     </ul>
                 </td>
                 <td class="element-options">
-                    <ul class='options'>
-                        <li class='column-import option' style='display:none;'><span class="option-label"></span>
-                            <input type='hidden' disabled='disabled' value='1' class='column-option column-url' name='column-url[<?php echo $index; ?>]'></input>
-                            <input type='hidden' disabled='disabled' value='1' class='column-option column-reference' name='column-reference[<?php echo $index; ?>]'></input>
+                    <ul class="options">
+                        <li class="column-data-type option">
+                            <?php echo $this->translate('Data type:'); ?>
+                            <span class="option-label"></span>
+                            <input type="hidden" name="column-data-type[<?php echo $index; ?>]" data-option-name="data-type" value="" disabled>
                         </li>
-                        <li class='column-multivalue option' style='display:none;'><?php echo $this->translate("Multivalue"); ?>
-                            <input type='hidden' disabled='disabled' value='1' class='column-option column-multivalue' name='column-multivalue[<?php echo $index; ?>]'></input>
+                        <li class="column-multivalue option">
+                            <?php echo $this->translate("Multivalue"); ?>
+                            <input type="hidden" name="column-multivalue[<?php echo $index; ?>]" data-option-name="multivalue" value="1" disabled>
                         </li>
-
-                        <li class='column-language option' style='display:none;'><?php echo $this->translate("Language:"); echo"&nbsp;"; ?>
-                            <span class='column-language'></span>
-                            <input type='hidden' disabled='disabled' value='' class='column-option column-language' name='column-language[<?php echo $index; ?>]'></input>
+                        <li class="column-language option">
+                            <?php echo $this->translate("Language:"); ?>
+                            <span class="column-language"></span>
+                            <input type="hidden" name="column-language[<?php echo $index; ?>]" data-option-name="language" value="" disabled>
+                        </li>
+                        <li class="column-private-values option">
+                            <?php echo $this->translate("Private values"); ?>
+                            <input type="hidden" name="column-private-values[<?php echo $index; ?>]" data-option-name="private-values" value="1" disabled>
+                        </li>
+                        <li class="column-resource-identifier-property option">
+                            <?php echo $this->translate("Resource identifier property:"); ?>
+                            <span class="option-label"></span>
+                            <input type="hidden" name="column-resource-identifier-property[<?php echo $index; ?>]" data-option-name="resource-identifier-property" value="" disabled>
                         </li>
                     </ul>
                 </td>
@@ -110,6 +133,8 @@ $pageTitle = isset($resourceTypeLabels[$resourceType])
         </tbody>
     </table>
     <?php echo $this->partial('common/mapping-sidebar'); ?>
-    <?php echo $this->partial('common/options-sidebar'); ?>
+    <?php if ($resourceType !== 'users'): ?>
+    <?php echo $this->partial('common/options-sidebar', ['dataTypes' => $dataTypes]); ?>
+    <?php endif; ?>
 </fieldset>
 <?php echo $this->form()->closeTag($form); ?>

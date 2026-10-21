@@ -28,7 +28,7 @@
               // Remove old chosen html and rebind event.
               sidebar.find('.chosen-container').remove();
               sidebar.find('.chosen-select').chosen(chosenOptions);
-              
+
               // Rebind property selector.
               $('.selector li.selector-parent').on('click', function(e) {
                   e.stopPropagation();
@@ -36,14 +36,14 @@
                       $(this).toggleClass('show');
                   }
               });
-      
+
               $('.selector-filter').on('keydown', function(e) {
                   if (e.keyCode == 13) {
                       e.stopPropagation();
                       e.preventDefault();
                   }
               });
-      
+
               // Property selector, filter properties.
               $('.selector-filter').on('keyup', (function() {
                   var timer = 0;
@@ -66,7 +66,6 @@
 
         $('.column-header + .actions a').on('click', function(e) {
             e.preventDefault();
-            $('.property-mapping input.value-language').val('');
             if (activeElement !== null) {
                 activeElement.removeClass('active');
             }
@@ -98,7 +97,7 @@
                 sidebar.html(defaultSidebarHtml);
                 rebindInputs(sidebar);
             }
-            
+
             Omeka.openSidebar(sidebar);
             populateSidebar();
         });
@@ -106,8 +105,7 @@
         function populateSidebar() {
             $('.active.element .options :input:not(:disabled)').each(function() {
                 var optionInput = $(this);
-                var optionName = optionInput.parents('.option').attr('class');
-                optionName = optionName.replace(' option', '').replace('column-', '');
+                var optionName = optionInput.data('optionName');
                 var sidebarOptionInput = $('#column-options .' + optionName + ' :input');
                 if (sidebarOptionInput.attr('type') == "checkbox") {
                     sidebarOptionInput.prop('checked', true);
@@ -116,9 +114,7 @@
                     sidebarOptionInput.val(optionInput.val());
                 }
                 if (sidebarOptionInput.prop('type') == "select-one") {
-                    var indexString = /(\[)(\d*)(\])/;
-                    var selectOptionName = this.name.replace(indexString, '');
-                    sidebarOptionInput.val(selectOptionName);
+                    sidebarOptionInput.val(optionInput.val());
                 }
             });
         }
@@ -188,15 +184,6 @@
             });
         });
 
-        $(document).on('change', '.resource-type-select select', function() {
-            var selectInput = $(this);
-            var selectedOption = selectInput.find(':selected').val();
-            selectInput.parent('.resource-type-select').siblings('.mapping').removeClass('active');
-            if (selectedOption !== 'default') {
-                $('.mapping.' + selectedOption).addClass('active');
-            }
-        });
-
         $(document).on('click', '.flags .confirm-panel button', function() {
             var sidebar = $(this).parents('.sidebar');
 
@@ -255,7 +242,7 @@
                 // Looks like a stopPropagation on the selector-parent forces me to
                 // bind the event lower down the DOM, then work back up to the li.
                 var targetLi = $(this);
-    
+
                 // First, check if the property is already added.
                 var hasMapping = activeElement.find('ul.mappings li[data-property-id="' + targetLi.data('property-id') + '"]');
                 if (hasMapping.length === 0) {
@@ -286,7 +273,7 @@
                 sidebarInput.parents('.option').addClass('batch-edit-touched');
             }
         });
-        
+
         $(document).on('click', '.reset-link', function(e) {
             e.preventDefault();
             var reset = $(this);
@@ -307,30 +294,22 @@
             activeElements.each(function() {
                 activeElement = $(this);
                 if (languageTextInput.hasClass('touched')) {
-                    var languageHiddenInput = activeElement.find('.column-language');
                     if (languageValue !== '') {
                         setLanguage(languageValue, languageTextInput);
                     } else {
-                        activeElement.find('li.column-language').hide();
-                        languageHiddenInput.prop('disabled', true);
+                        setOptionStatus(activeElement.find('li.column-language'));
                     }
                 }
-    
+
                 sidebar.find('input[type="checkbox"]').each(function() {
                     var checkboxInput = $(this);
                     if (checkboxInput.hasClass('touched')) {
                         var optionClass = '.' + checkboxInput.data('column-option');
                         var optionLi = activeElement.find($(optionClass));
-                        if (checkboxInput.is(':checked')) {
-                            optionLi.show();
-                            optionLi.find('input[type="hidden"]').prop('disabled', false);
-                        } else {
-                            optionLi.hide();
-                            optionLi.find('input[type="hidden"]').prop('disabled', true);
-                        }
+                        setOptionStatus(optionLi, checkboxInput.is(':checked'));
                     }
                 });
-    
+
                 sidebar.find('select').each(function() {
                     var selectInput = $(this);
                     if (selectInput.hasClass('touched')) {
@@ -338,13 +317,13 @@
                         var selectedOptionValue = selectedOption.val();
                         var optionClass = '.' + selectInput.data('column-option');
                         var optionLi = activeElement.find(optionClass);
-                        optionLi.find('input[type="hidden"]').prop('disabled', true);
-                        if (selectedOptionValue !== 'default') {
-                            optionLi.show();
+                        optionLi.find('input[type="hidden"]').val(selectedOptionValue);
+                        if (selectedOptionValue !== '') {
                             optionLi.find('.option-label').text(selectedOption.text());
-                            optionLi.find('.' + selectedOptionValue).prop('disabled', false)
+                            setOptionStatus(optionLi, true);
                         } else {
-                            optionLi.hide();
+                            optionLi.find('.option-label').text('');
+                            setOptionStatus(optionLi, false);
                         }
                     }
                 });
@@ -373,20 +352,6 @@
             $(this).parents('li.mapping').remove();
         });
 
-        /*
-         * Modified from resource-form.js in core
-         */
-
-        $(document).on('keyup', 'input.value-language', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            if ('' === this.value || Omeka.langIsValid(this.value)) {
-                this.setCustomValidity('');
-            } else {
-                this.setCustomValidity(Omeka.jsTranslate('Please enter a valid language tag'));
-            }
-        });
-
         function applyMappings(flagName, flagValue, flagLiClass, flagLabel) {
             var hasFlag = activeElement.find('ul.mappings li.' + flagLiClass);
             if (flagValue == 'default') {
@@ -403,7 +368,7 @@
                     hasFlag = activeElement.find('ul.mappings li.' + flagLiClass);
                 }
             }
-  
+
             if (hasFlag.length === 0) {
                 var index = activeElement.data('element-id');
                 flagName = flagName + "[" + index + "]";
@@ -419,6 +384,10 @@
             }
         };
 
+        function setOptionStatus(optionLi, active) {
+            optionLi.toggleClass('active', active);
+            optionLi.find('input[type="hidden"]').prop('disabled', !active);
+        }
 
         function setLanguage(lang) {
             var valueLanguageElement = document.getElementById('value-language');
@@ -435,14 +404,12 @@
             }
 
             if (valid && lang != '') {
-                var languageInput = activeElement.find('input.column-language');
+                var languageInput = activeElement.find('li.column-language input');
                 languageInput.val(lang);
-                activeElement.find('li.column-language').show();
+                setOptionStatus(activeElement.find('li.column-language'), true);
                 activeElement.find('span.column-language').html(lang);
-                languageInput.prop('disabled', false);
             }
         }
-
 
         function toggleActionOptions() {
             var action = $('#action').val();
@@ -457,4 +424,5 @@
         toggleActionOptions();
         $('#action').change(toggleActionOptions);
     });
+
 })(jQuery);

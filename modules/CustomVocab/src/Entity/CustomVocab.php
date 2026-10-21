@@ -2,6 +2,7 @@
 namespace CustomVocab\Entity;
 
 use Omeka\Entity\AbstractEntity;
+use Omeka\Entity\ItemSet;
 use Omeka\Entity\User;
 
 /**
@@ -27,9 +28,20 @@ class CustomVocab extends AbstractEntity
     protected $lang;
 
     /**
-     * @Column(type="text")
+     * @ManyToOne(targetEntity="Omeka\Entity\ItemSet")
+     * @JoinColumn(onDelete="SET NULL")
+     */
+    protected $itemSet;
+
+    /**
+     * @Column(nullable=true, type="json")
      */
     protected $terms;
+
+    /**
+     * @Column(nullable=true, type="json")
+     */
+    protected $uris;
 
     /**
      * @ManyToOne(targetEntity="Omeka\Entity\User")
@@ -62,6 +74,16 @@ class CustomVocab extends AbstractEntity
         return $this->lang;
     }
 
+    public function setItemSet(?ItemSet $itemSet = null)
+    {
+        $this->itemSet = $itemSet;
+    }
+
+    public function getItemSet()
+    {
+        return $this->itemSet;
+    }
+
     public function setTerms($terms)
     {
         $this->terms = $terms;
@@ -72,7 +94,17 @@ class CustomVocab extends AbstractEntity
         return $this->terms;
     }
 
-    public function setOwner(User $owner = null)
+    public function setUris($uris)
+    {
+        $this->uris = $uris;
+    }
+
+    public function getUris()
+    {
+        return $this->uris;
+    }
+
+    public function setOwner(?User $owner = null)
     {
         $this->owner = $owner;
     }

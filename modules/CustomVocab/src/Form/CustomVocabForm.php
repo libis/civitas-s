@@ -1,7 +1,8 @@
 <?php
 namespace CustomVocab\Form;
 
-use Zend\Form\Form;
+use Laminas\Form\Form;
+use Omeka\Form\Element as OmekaElement;
 
 class CustomVocabForm extends Form
 {
@@ -33,17 +34,67 @@ class CustomVocabForm extends Form
         ]);
 
         $this->add([
-            'name' => 'o:terms',
-            'type' => 'textarea',
+            'name' => 'vocab_type',
+            'type' => 'radio',
             'options' => [
-                'label' => 'Terms', // @translate
-                'info' => 'All terms in this vocabulary, separated by new lines.', // @translate
+                'label' => 'Vocab type',
+                'value_options' => [
+                    'literal' => 'Terms', // @translate
+                    'resource' => 'Items', // @translate
+                    'uri' => 'URIs', // @translate
+                ],
             ],
             'attributes' => [
-                'required' => true,
+                'class' => 'vocab-type',
+            ],
+        ]);
+
+        $this->add([
+            'name' => 'o:item_set',
+            'type' => 'Omeka\Form\Element\ItemSetSelect',
+            'options' => [
+                'label' => 'Items', // @translate
+                'info' => 'Enter the item set containing the items in this vocabulary.', // @translate
+                'empty_option' => 'Select an item set',
+            ],
+            'attributes' => [
+                'id' => 'o-item-set',
+            ],
+        ]);
+
+        $this->add([
+            'name' => 'o:terms',
+            'type' => OmekaElement\ArrayTextarea::class,
+            'options' => [
+                'label' => 'Terms', // @translate
+                'info' => 'Enter all the terms in this vocabulary, separated by new lines.', // @translate
+                'as_key_value' => false,
+            ],
+            'attributes' => [
                 'rows' => 20,
                 'id' => 'o-terms',
             ],
+        ]);
+
+        $this->add([
+            'name' => 'o:uris',
+            'type' => OmekaElement\ArrayTextarea::class,
+            'options' => [
+                'label' => 'URIs', // @translate
+                'info' => 'Enter all the URIs in this vocabulary, separated by new lines. You may label a URI by including the label after the URI, separated by a space.', // @translate
+                'as_key_value' => true,
+                'key_value_separator' => ' ',
+            ],
+            'attributes' => [
+                'rows' => 20,
+                'id' => 'o-uris',
+            ],
+        ]);
+
+        $inputFilter = $this->getInputFilter();
+        $inputFilter->add([
+            'name' => 'o:item_set',
+            'allow_empty' => true,
         ]);
     }
 }

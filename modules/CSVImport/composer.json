@@ -1,5 +1,8 @@
 {
     "require": {
-        "box/spout": "^2.7"
+        "openspout/openspout": "^3.7"
+    },
+    "config": {
+        "platform": {"php": "7.4"}
     }
 }

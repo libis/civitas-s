@@ -1,7 +1,7 @@
 <?php
 namespace CSVImport\Mapping;
 
-use Zend\View\Renderer\PhpRenderer;
+use Laminas\View\Renderer\PhpRenderer;
 
 class MediaSourceMapping extends AbstractMapping
 {
@@ -18,9 +18,6 @@ class MediaSourceMapping extends AbstractMapping
         // Reset the data and the map between rows.
         $this->setHasErr(false);
         $data = [];
-
-        $this->findResourceFromIdentifier = $this->getServiceLocator()->get('ControllerPluginManager')
-            ->get('findResourceFromIdentifier');
 
         // First, pull in the global settings.
         $resourceType = $this->args['resource_type'];
@@ -50,8 +47,8 @@ class MediaSourceMapping extends AbstractMapping
             return $data;
         }
 
-        $config = $this->getServiceLocator()->get('Config');
-        $mediaAdapters = $config['csv_import']['media_ingester_adapter'];
+        $config = $this->getServiceLocator()->get('CSVImport\Config');
+        $mediaAdapters = $config['media_ingester_adapter'];
         $action = $this->args['action'];
 
         $multivalueMap = isset($this->args['column-multivalue']) ? $this->args['column-multivalue'] : [];

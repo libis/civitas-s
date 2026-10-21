@@ -6,10 +6,10 @@ use CSVImport\Mvc\Controller\Plugin\FindResourcesFromIdentifiers;
 use CSVImport\Source\SourceInterface;
 use finfo;
 use Omeka\Api\Manager;
-use Omeka\Api\Response;
+use Omeka\Entity;
 use Omeka\Job\AbstractJob;
 use Omeka\Stdlib\Message;
-use Zend\Log\Logger;
+use Laminas\Log\Logger;
 
 class Import extends AbstractJob
 {
@@ -98,15 +98,19 @@ class Import extends AbstractJob
      */
     protected $emptyLines;
 
+    /**
+     * @var array
+     */
+    protected $originalIdentityMap;
+
     public function perform()
     {
-        ini_set('auto_detect_line_endings', true);
         $services = $this->getServiceLocator();
         $this->api = $services->get('Omeka\ApiManager');
         $this->logger = $services->get('Omeka\Logger');
         $this->findResourcesFromIdentifiers = $services->get('ControllerPluginManager')
             ->get('findResourcesFromIdentifiers');
-        $config = $services->get('Config');
+        $config = $services->get('CSVImport\Config');
 
         $this->args = $this->job->getArgs();
         $args = &$this->args;
@@ -117,7 +121,7 @@ class Import extends AbstractJob
         $this->importResource = $this->resourceType === 'resources';
 
         $this->mappings = [];
-        $mappingClasses = $config['csv_import']['mappings'][$this->resourceType];
+        $mappingClasses = $config['mappings'][$this->resourceType];
         foreach ($mappingClasses as $mappingClass) {
             $mapping = new $mappingClass();
             $mapping->init($args, $services);
@@ -163,7 +167,7 @@ class Import extends AbstractJob
             $this->identifierPropertyId = (int) $args['identifier_property'];
         } else {
             $result = $this->api
-            ->search('properties', ['term' => $args['identifier_property']])->getContent();
+                ->search('properties', ['term' => $args['identifier_property']])->getContent();
             $this->identifierPropertyId = $result ? $result[0]->id() : null;
         }
 
@@ -171,14 +175,19 @@ class Import extends AbstractJob
             $this->rowsByBatch = (int) $args['rows_by_batch'];
         }
 
-        // The core allows batch processes only for creation and deletion.
-        if (!in_array($args['action'], [self::ACTION_CREATE, self::ACTION_DELETE, self::ACTION_SKIP])
-            // It allows to identify resources too, so to use a new resource
-            // from a previous row.
-            || ($args['action'] === self::ACTION_CREATE && $this->resourceType === 'resources')
+        // Force row-at-a-time processing for mixed-resource imports to allow
+        // rows to freely reference data from prior rows
+        if ($this->resourceType === 'resources'
+            && !in_array($args['action'], [self::ACTION_DELETE, self::ACTION_SKIP])
         ) {
             $this->rowsByBatch = 1;
         }
+
+        // Detach entities that can cause problems with the flush-detach cycle later
+        // in the import. This is currently only relevant for import jobs run with
+        // the Synchronous strategy
+        $this->detachProblematicEntities();
+        $this->originalIdentityMap = $this->getServiceLocator()->get('Omeka\EntityManager')->getUnitOfWork()->getIdentityMap();
 
         $this->emptyLines = 0;
 
@@ -195,7 +204,7 @@ class Import extends AbstractJob
             $data = $this->mapRows($rows);
             $this->processBatchData($data);
             $offset += $this->rowsByBatch;
-        };
+        }
 
         if ($this->emptyLines) {
             $this->logger->info(new Message('%d empty lines were skipped.', // @translate
@@ -215,7 +224,9 @@ class Import extends AbstractJob
     {
         $data = [];
         foreach ($rows as $row) {
-            if (!array_filter($row, function ($v) { return strlen($v); })) {
+            if (!array_filter($row, function ($v) {
+                return strlen($v);
+            })) {
                 $this->emptyLines++;
                 continue;
             }
@@ -292,6 +303,7 @@ class Import extends AbstractJob
                     $dataToProcess = $this->identifyMedias($dataToProcess, $idsToProcess);
                 }
                 $this->update($dataToProcess, $idsToProcess, $args['action']);
+                $this->detachAllNewEntities();
                 break;
 
             case self::ACTION_DELETE:
@@ -505,6 +517,8 @@ class Import extends AbstractJob
      * To be used with rows that contain a media source.
      * The identifiers of media themselves are found as standard resources.
      *
+     * Also, check for validity of the primary media if it's being set.
+     *
      * @param array $data
      * @param array $ids All the ids must exists and the order must be the same
      * than data.
@@ -515,10 +529,21 @@ class Import extends AbstractJob
         $findResourceFromIdentifier = $this->findResourcesFromIdentifiers;
         foreach ($data as $key => &$entityJson) {
             if (empty($entityJson['o:media'])) {
+                if (!empty($entityJson['o:primary_media'])) {
+                    unset($entityJson['o:primary_media']);
+                }
                 continue;
+            }
+            $primaryMediaId = null;
+            $primaryMediaValid = false;
+            if (!empty($entityJson['o:primary_media']['o:id'])) {
+                $primaryMediaId = (int) $entityJson['o:primary_media']['o:id'];
             }
             foreach ($entityJson['o:media'] as &$media) {
                 if (!empty($media['o:id'])) {
+                    if ((int) $media['o:id'] === $primaryMediaId) {
+                        $primaryMediaValid = true;
+                    }
                     continue;
                 }
                 if (empty($media['o:source']) || empty($media['o:ingester'])) {
@@ -532,6 +557,13 @@ class Import extends AbstractJob
                 if ($resourceId) {
                     $media['o:id'] = $resourceId;
                 }
+            }
+
+            // If the primary media being set isn't one of the media being set,
+            // drop the primary media (typically this means we're deleting the
+            // current primary media)
+            if ($primaryMediaId && !$primaryMediaValid) {
+                $entityJson['o:primary_media'] = null;
             }
         }
         return $data;
@@ -552,10 +584,9 @@ class Import extends AbstractJob
         foreach ($resources as $resource) {
             // "Batch Create" returns a reference and "Create" a representation.
             if ($resource->resourceName() === 'media') {
-                $mediaIds[] = $resource->id();
+                $mediaIds[] = (int) $resource->id();
             }
         }
-        $mediaIds = array_map('intval', $mediaIds);
         if (empty($mediaIds)) {
             return;
         }
@@ -563,7 +594,7 @@ class Import extends AbstractJob
         $services = $this->getServiceLocator();
         $conn = $services->get('Omeka\Connection');
 
-        // Get the item ids first to avoid a sort issue with the subquery below.
+        // Get the item ids first to avoid a sort issue with the subquery below
         $qb = $conn->createQueryBuilder();
         $qb
             ->select('media.item_id')
@@ -571,34 +602,46 @@ class Import extends AbstractJob
             ->where($qb->expr()->in('id', $mediaIds))
             ->groupBy('media.item_id')
             ->orderBy('media.item_id', 'ASC');
-        $stmt = $conn->executeQuery($qb, $qb->getParameters());
-        $itemIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $itemIds = $qb->execute()->fetchFirstColumn();
 
-        // Get the media rank by item in one query even when position is set.
-        // Note: in the subquery, the variable item_id should be set after rank.
-        // If the media ids are used, a sort issue appears:
-        // WHERE item_id IN (SELECT item_id FROM `media` WHERE id IN (%s) GROUP BY item_id ORDER BY item_id ASC)
-        $conn->exec('SET @item_id = 0; SET @rank = 1;');
-        $query = <<<'SQL'
-SELECT id, rank FROM (
-    SELECT id, @rank := IF(@item_id = item_id, @rank + 1, 1) AS rank, @item_id := item_id AS item
-    FROM media
-    WHERE item_id IN (%s)
-    ORDER BY item_id ASC, -position DESC, id ASC
-) AS media_rank;
-SQL;
-        $stmt = $conn->query(sprintf($query, implode(',', $itemIds)));
-        $mediaRanks = $stmt->fetchAll(\PDO::FETCH_KEY_PAIR);
+        // Get all media IDs for the affected items in the proper order
+        $qb = $conn->createQueryBuilder();
+        $qb
+            ->select('item_id', 'id')
+            ->from('media')
+            ->where($qb->expr()->in('item_id', $itemIds))
+            ->orderBy('item_id', 'ASC')
+            ->addOrderBy('-position', 'DESC')
+            ->addOrderBy('id', 'ASC');
+        $mediaInOrder = $qb->execute()->fetchAllAssociative();
+
+        // Get correct position for each media
+        $mediaRanks = [];
+        $currentItemId = null;
+        $position = null;
+        foreach ($mediaInOrder as $mediaData) {
+            if ($mediaData['item_id'] !== $currentItemId) {
+                $position = 1;
+                $currentItemId = $mediaData['item_id'];
+            } else {
+                $position++;
+            }
+
+            $mediaRanks[$mediaData['id']] = $position;
+        }
 
         // Update positions of the updated media.
-        $entityManager = $services->get('Omeka\EntityManager');
-        $mediaRepository = $entityManager->getRepository(\Omeka\Entity\Media::class);
-        $medias = $mediaRepository->findById(array_keys($mediaRanks));
-        foreach ($medias as $media) {
-            $rank = $mediaRanks[$media->getId()];
-            $media->setPosition($rank);
+        $conn->beginTransaction();
+        try {
+            $updateQuery = 'UPDATE media SET position = ? WHERE id = ?';
+            foreach ($mediaRanks as $id => $rank) {
+                $conn->executeQuery($updateQuery, [$rank, $id], ['integer', 'integer']);
+            }
+            $conn->commit();
+        } catch (\Exception $e) {
+            $conn->rollBack();
+            throw $e;
         }
-        $entityManager->flush();
     }
 
     /**
@@ -741,7 +784,7 @@ SQL;
      * @param string $resourceType
      * @param int $id
      * @param array $data
-     * @return Response
+     * @return \Omeka\Api\Response
      */
     protected function append($resourceType, $id, $data)
     {
@@ -771,7 +814,7 @@ SQL;
      * @param int $id
      * @param array $data
      * @param string $action
-     * @return Response
+     * @return \Omeka\Api\Response
      */
     protected function updateRevise($resourceType, $id, $data, $action)
     {
@@ -803,11 +846,11 @@ SQL;
      */
     protected function removeEmptyData(array $data)
     {
-        // Data are updated in place.
-        foreach ($data as $name => &$metadata) {
+        foreach ($data as $name => $metadata) {
             switch ($name) {
                 case 'o:resource_template':
                 case 'o:resource_class':
+                case 'o:thumbnail':
                 case 'o:owner':
                 case 'o:item':
                     if (empty($metadata) || empty($metadata['o:id'])) {
@@ -826,6 +869,7 @@ SQL;
                 case 'o:ingester':
                 case 'o:source':
                 case 'ingest_filename':
+                case 'o:size':
                     unset($data[$name]);
                     break;
                 case 'o:is_public':
@@ -834,12 +878,12 @@ SQL;
                         unset($data[$name]);
                     }
                     break;
+                // Properties.
                 default:
-                    if (is_array($metadata)) {
-                        if (empty($metadata)) {
-                            unset($data[$name]);
-                        }
+                    if (is_array($metadata) && empty($metadata)) {
+                        unset($data[$name]);
                     }
+                    break;
             }
         }
         return $data;
@@ -856,12 +900,10 @@ SQL;
     protected function mergeMetadata(array $currentData, array $newData, $keepIfNull = false)
     {
         // Merge properties.
-        // Current values are cleaned too, because they have the property label.
-        // So they are deduplicated too.
         $currentValues = $this->extractPropertyValuesFromResource($currentData);
         $newValues = $this->extractPropertyValuesFromResource($newData);
-        $mergedValues = array_merge_recursive($currentValues, $newValues);
-        $merged = $this->deduplicatePropertyValues($mergedValues);
+        $newValues = $this->deduplicateNewPropertyValues($currentValues, $newValues);
+        $merged = array_merge_recursive($currentValues, $newValues);
 
         // Merge lists of ids.
         $names = ['o:item_set', 'o:item', 'o:media'];
@@ -958,18 +1000,16 @@ SQL;
     protected function deduplicateIds($data)
     {
         $dataBase = $data;
-        // Base to normalize data in order to deduplicate them in one pass.
-        $base = [];
-        $base['id'] = ['o:id' => 0];
         // Deduplicate data.
-        $data = array_map('unserialize', array_unique(array_map('serialize',
+        $data = array_map('unserialize', array_unique(array_map(
+            'serialize',
             // Normalize data.
-            array_map(function ($v) use ($base) {
+            array_map(function ($v) {
                 return isset($v['o:id']) ? ['o:id' => $v['o:id']] : $v;
-        }, $data))));
-        // Keep first original data.
-        $data = array_intersect_key($dataBase, $data);
-        return $data;
+            }, $data)
+        )));
+        // Keep original data first.
+        return array_intersect_key($dataBase, $data);
     }
 
     /**
@@ -978,23 +1018,43 @@ SQL;
      * @param array $values
      * @return array
      */
-    protected function deduplicatePropertyValues($values)
+    protected function deduplicateNewPropertyValues($currentValues, $newValues)
     {
-        // Base to normalize data in order to deduplicate them in one pass.
-        $base = [];
-        $base['literal'] = ['property_id' => 0, 'type' => 'literal', '@language' => '', '@value' => ''];
-        $base['resource'] = ['property_id' => 0, 'type' => 'resource', 'value_resource_id' => 0];
-        $base['url'] = ['property_id' => 0, 'type' => 'url', '@id' => 0, 'o:label' => ''];
-        foreach ($values as $key => $value) {
-            $values[$key] = array_values(
-                // Deduplicate values.
-                array_map('unserialize', array_unique(array_map('serialize',
-                    // Normalize values.
-                    array_map(function ($v) use ($base) {
-                        return array_replace($base[$v['type']], array_intersect_key($v, $base[$v['type']]));
-            }, $value)))));
+        $existingValues = [];
+        $getUniqueKey = function ($value) {
+            // resource
+            if (array_key_exists('value_resource_id', $value)) {
+                return (int) $value['value_resource_id'];
+            }
+            // uri
+            if (array_key_exists('@id', $value)) {
+                return $value['@id'];
+            }
+            // literal
+            return $value['@value'];
+        };
+        foreach ($currentValues as $currentTermValues) {
+            foreach ($currentTermValues as $value) {
+                $type = $value['type'];
+                $propertyId = $value['property_id'];
+                $uniqueKey = $getUniqueKey($value);
+                $existingValues[$type][$propertyId][$uniqueKey] = true;
+            }
         }
-        return $values;
+
+        foreach ($newValues as $term => $newTermValues) {
+            foreach ($newTermValues as $subkey => $value) {
+                $type = $value['type'];
+                $propertyId = $value['property_id'];
+                $uniqueKey = $getUniqueKey($value);
+
+                if (!$type || !$propertyId || !isset($uniqueKey) || isset($existingValues[$type][$propertyId][$uniqueKey])) {
+                    unset($newValues[$term][$subkey]);
+                }
+            }
+        }
+
+        return $newValues;
     }
 
     /**
@@ -1024,7 +1084,7 @@ SQL;
             }
         }
 
-        $sources = $this->getServiceLocator()->get('Config')['csv_import']['sources'];
+        $sources = $this->getServiceLocator()->get('CSVImport\Config')['sources'];
         if (!isset($sources[$mediaType])) {
             return;
         }
@@ -1141,7 +1201,7 @@ SQL;
                     }, $result);
                     if ($itemIds) {
                         $entityManager = $this->getServiceLocator()->get('Omeka\EntityManager');
-                        $query = $entityManager ->createQuery(
+                        $query = $entityManager->createQuery(
                             sprintf('SELECT COUNT(media.id) FROM Omeka\Entity\Media media WHERE media.item IN (%s)',
                                 implode(',', $itemIds)));
                         $total = $query->getSingleScalarResult();
@@ -1181,6 +1241,63 @@ SQL;
         $response = $this->api->update('csvimport_imports', $this->importRecord->id(), $csvImportJson);
         if ($this->source) {
             $this->source->clean();
+        }
+    }
+
+    /**
+     * Given an old copy of the Doctrine identity map, reset
+     * the entity manager to that state by detaching all entities that
+     * did not exist in the prior state.
+     *
+     * @internal This is a copy-paste of the functionality from the abstract entity adapter
+     */
+    protected function detachAllNewEntities()
+    {
+        $entityManager = $this->getServiceLocator()->get('Omeka\EntityManager');
+        $uow = $entityManager->getUnitOfWork();
+        $identityMap = $uow->getIdentityMap();
+        foreach ($identityMap as $entityClass => $entities) {
+            foreach ($entities as $idHash => $entity) {
+                if (!isset($this->originalIdentityMap[$entityClass][$idHash])) {
+                    $entityManager->detach($entity);
+                }
+            }
+        }
+        $scheduledInsertions = $uow->getScheduledEntityInsertions();
+        foreach ($scheduledInsertions as $entity) {
+            $entityManager->detach($entity);
+        }
+    }
+
+    /**
+     * Detach entities that cause issues with imports due to later detachments
+     *
+     * Currently this is Resource and ResourceTemplate entities: when running
+     * synchronously there are templates and resources loaded to build the
+     * import form elements for item set and template selection, and because
+     * the templates reference template properties (and the resources reference
+     * the templates), having them initially in the EM before the process starts
+     * causes "new entity found" errors, and sometimes unique constraint
+     * violations.
+     *
+     * To prevent this, we can detach all these before the job starts, so any
+     * resources, templates, template properties loaded during the import will
+     * be periodically detached more similarly to the usual situation with a
+     * job running in the background.
+     */
+    protected function detachProblematicEntities()
+    {
+        $problematicEntities = [Entity\Resource::class, Entity\ResourceTemplate::class];
+        $entityManager = $this->getServiceLocator()->get('Omeka\EntityManager');
+        $uow = $entityManager->getUnitOfWork();
+        $identityMap = $uow->getIdentityMap();
+        foreach ($problematicEntities as $entityClass) {
+            if (!isset($identityMap[$entityClass])) {
+                continue;
+            }
+            foreach ($identityMap[$entityClass] as $entity) {
+                $entityManager->detach($entity);
+            }
         }
     }
 }
